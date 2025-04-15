@@ -40,14 +40,15 @@ class AudioDataset(data.Dataset):
     @property
     def keys(self) -> Sequence[str]:
         if self._keys is None:
-            with self.env.begin() as txn:
-                self._keys = list(txn.cursor().iternext(values=False))
+            with lmdb.open(self._db_path, lock=False) as env:
+                with env.begin() as txn:
+                    self._keys = list(txn.cursor().iternext(values=False))
         return self._keys
 
     def __init__(self,
                  db_path: str,
                  audio_key: str = 'waveform',
-                 transforms: Optional[transforms.Transform] = None, 
+                 transforms: Optional[transforms.Transform] = None,
                  n_channels: int = 1) -> None:
         super().__init__()
         self._db_path = db_path
@@ -56,12 +57,6 @@ class AudioDataset(data.Dataset):
         self._keys = None
         self._transforms = transforms
         self._n_channels = n_channels
-        lens = []
-        with self.env.begin() as txn:
-            for k in self.keys:
-               ae = AudioExample.FromString(txn.get(k)) 
-               lens.append(np.frombuffer(ae.buffers['waveform'].data, dtype=np.int16).shape)
-
 
     def __len__(self):
         return len(self.keys)
@@ -94,8 +89,9 @@ class LazyAudioDataset(data.Dataset):
     @property
     def keys(self) -> Sequence[str]:
         if self._keys is None:
-            with self.env.begin() as txn:
-                self._keys = list(txn.cursor().iternext(values=False))
+            with lmdb.open(self._db_path, lock=False) as env:
+                with env.begin() as txn:
+                    self._keys = list(txn.cursor().iternext(values=False))
         return self._keys
 
     def __init__(self,
@@ -118,8 +114,9 @@ class LazyAudioDataset(data.Dataset):
     def parse_dataset(self):
         items = []
         for key in tqdm(self.keys, desc='Discovering dataset'):
-            with self.env.begin() as txn:
-                ae = AudioExample.FromString(txn.get(key))
+            with lmdb.open(self._db_path, lock=False) as env:
+                with env.begin() as txn:
+                    ae = AudioExample.FromString(txn.get(key))
             length = float(ae.metadata['length'])
             n_signal = int(math.floor(length * self._sampling_rate))
             n_chunks = n_signal // self._n_signal
@@ -203,6 +200,9 @@ def normalize_signal(x: np.ndarray, max_gain_db: int = 30):
 
     return x * gain
 
+def get_as_float32(val):
+    return val.astype(np.float32)
+
 @gin.configurable
 def get_dataset(db_path,
                 sr,
@@ -210,7 +210,7 @@ def get_dataset(db_path,
                 derivative: bool = False,
                 normalize: bool = False,
                 rand_pitch: bool = False,
-                augmentations: Union[None, Iterable[Callable]] = None, 
+                augmentations: Union[None, Iterable[Callable]] = None,
                 n_channels: int = 1):
     if db_path[:4] == "http":
         return HTTPAudioDataset(db_path=db_path)
@@ -221,12 +221,9 @@ def get_dataset(db_path,
     lazy = metadata['lazy']
 
     transform_list = [
-        lambda x: x.astype(np.float32),
+        get_as_float32,
         transforms.RandomCrop(n_signal),
-        transforms.RandomApply(
-            lambda x: random_phase_mangle(x, 20, 2000, .99, sr_dataset),
-            p=.8,
-        ),
+        transforms.RandomPhaseMangle(20, 2000, .99, sr_dataset, p=.8),
         transforms.Dequantize(16),
     ]
 
@@ -247,7 +244,7 @@ def get_dataset(db_path,
     if augmentations:
         transform_list.extend(augmentations)
 
-    transform_list.append(lambda x: x.astype(np.float32))
+    transform_list.append(get_as_float32)
 
     transform_list = transforms.Compose(transform_list)
 
