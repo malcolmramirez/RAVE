@@ -172,6 +172,8 @@ def main(argv):
 
     # get data-loader
     num_workers = FLAGS.workers
+    if os.name == "nt" or sys.platform == "darwin":
+        num_workers = 0
     train = DataLoader(train,
                        FLAGS.batch,
                        True,

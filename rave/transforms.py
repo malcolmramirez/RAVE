@@ -28,24 +28,6 @@ class RandomApply(Transform):
             x = self.transform(x)
         return x
 
-class RandomPhaseMangle(Transform):
-    """
-    Apply random phase mangle transform with probability p
-    """
-    def __init__(self, min_f: int, max_f: int, amp: float, sr: int, p=.5):
-        self.min_f = min_f
-        self.max_f = max_f
-        self.amp = amp
-        self.sr = sr
-        self.p = p
-
-    def __call__(self, x):
-        if random() < self.p:
-            angle = signal.random_angle(self.min_f, self.max_f, self.sr)
-            b, a = signal.pole_to_z_filter(angle, self.amp)
-            return signal.lfilter(b, a, x)
-        return x
-
 class Resample(Transform):
     """
     Resample target signal to target sample rate.
@@ -176,7 +158,7 @@ class RandomGain(Transform):
             gain_factor = np.random.rand(1)[None, None][0] * (self.gain_range[1] - self.gain_range[0]) + self.gain_range[0]
             amp_factor = np.power(10, gain_factor / 20)
             x_amp = x * amp_factor
-            if (self.limit) and (np.abs(x_amp).max() > 1):
+            if (self.limit) and (np.abs(x_amp).max() > 1): 
                 x_amp = x_amp / np.abs(x_amp).max()
             return x
         else:
@@ -211,7 +193,7 @@ class FrequencyMasking(Transform):
         spectrogram[..., freq_idx:freq_idx+mask_size, :] = 0
         x_inv = signal.istft(spectrogram)[1]
         return x_inv
-
+            
 
 
 # Utilitary for GIN recording of augmentations
